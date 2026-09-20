@@ -1,0 +1,125 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum OrderStatus {
+  PENDING
+  ASSIGNED
+  ACCEPTED
+  ON_THE_WAY
+  IN_PROGRESS
+  COMPLETED
+  RATED
+  CANCELLED
+}
+
+enum ServiceCategory {
+  CLEANING
+  REPAIR
+  PLUMBING
+  MOVING
+  ERRAND
+}
+
+enum WorkerStatus {
+  ONLINE
+  BUSY
+  OFFLINE
+  PENDING_REVIEW
+}
+
+enum UserRole {
+  CUSTOMER
+  WORKER
+  ADMIN
+}
+
+enum ServiceStatus {
+  ACTIVE
+  INACTIVE
+}
+
+model User {
+  id        String         @id @default(uuid())
+  username  String         @unique
+  password  String
+  role      UserRole
+  nickname  String
+  phone     String
+  avatar    String?
+  createdAt DateTime       @default(now())
+  orders    ServiceOrder[]
+  worker    Worker?
+}
+
+model ServiceItem {
+  id          String          @id @default(uuid())
+  name        String
+  category    ServiceCategory
+  description String
+  basePrice   Decimal         @db.Decimal(10, 2)
+  unit        String
+  duration    Int
+  status      ServiceStatus   @default(ACTIVE)
+  orderCount  Int             @default(0)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  orders      ServiceOrder[]
+}
+
+model ServiceOrder {
+  id             String       @id @default(uuid())
+  orderNo        String       @unique
+  serviceItemId  String
+  customerId     String
+  workerId       String?
+  address        String
+  addressDetail  String
+  contactPhone   String
+  scheduledTime  DateTime
+  status         OrderStatus  @default(PENDING)
+  totalPrice     Decimal      @db.Decimal(10, 2)
+  actualDuration Int?
+  rating         Int?
+  comment        String?
+  cancelReason   String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  serviceItem    ServiceItem  @relation(fields: [serviceItemId], references: [id])
+  customer       User         @relation(fields: [customerId], references: [id])
+  worker         Worker?      @relation(fields: [workerId], references: [id])
+}
+
+model Worker {
+  id          String            @id @default(uuid())
+  userId      String            @unique
+  name        String
+  phone       String
+  avatar      String?
+  specialties ServiceCategory[]
+  rating      Decimal           @default(5.0) @db.Decimal(3, 2)
+  totalOrders Int               @default(0)
+  status      WorkerStatus      @default(PENDING_REVIEW)
+  bio         String
+  experience  Int
+  idCardNo    String
+  createdAt   DateTime          @default(now())
+  user        User              @relation(fields: [userId], references: [id])
+  orders      ServiceOrder[]
+}
+
+model AuditLog {
+  id           String   @id @default(uuid())
+  actorId      String?
+  action       String
+  targetEntity String
+  targetId     String?
+  ip           String?
+  params       Json?
+  createdAt    DateTime @default(now())
+}

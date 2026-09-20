@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.playwright-cli/
+*.tsbuildinfo
+.DS_Store
+npm-debug.log*

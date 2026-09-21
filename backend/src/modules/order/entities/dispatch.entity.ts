@@ -1,30 +1,5 @@
-import { OrderStatus, ServiceCategory } from '../constants/enums';
-import { ServiceItem } from './service';
-import { User } from './auth';
-import { Worker } from './worker';
-
-export interface ServiceOrder {
-  id: string;
-  orderNo: string;
-  serviceItemId: string;
-  customerId: string;
-  workerId?: string;
-  address: string;
-  addressDetail: string;
-  contactPhone: string;
-  scheduledTime: string;
-  status: OrderStatus;
-  totalPrice: number;
-  actualDuration?: number;
-  rating?: number;
-  comment?: string;
-  cancelReason?: string;
-  createdAt: string;
-  updatedAt: string;
-  serviceItem: ServiceItem;
-  customer: User;
-  worker?: Worker;
-}
+import { OrderStatus, ServiceCategory } from '../../../constants/enums';
+import { WorkerEntity } from '../../worker/entities/worker.entity';
 
 export type DispatchConflictType = 'WORKER_NOT_ONLINE' | 'CATEGORY_MISMATCH' | 'TIME_OVERLAP';
 
@@ -40,7 +15,7 @@ export interface DispatchConflict {
 }
 
 export interface DispatchCandidate {
-  worker: Worker;
+  worker: WorkerEntity;
   eligible: boolean;
   reasons: string[];
   conflicts: DispatchConflict[];

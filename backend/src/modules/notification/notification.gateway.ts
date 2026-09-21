@@ -3,6 +3,8 @@ import { OnGatewayConnection, WebSocketGateway, WebSocketServer } from '@nestjs/
 import { Server, WebSocket } from 'ws';
 import { NotificationPayload, NotificationService } from './notification.service';
 
+type AuthedWebSocket = WebSocket & { userId?: string };
+
 @WebSocketGateway({ path: '/notifications', cors: true })
 export class NotificationGateway implements OnGatewayConnection {
   @WebSocketServer()
@@ -12,10 +14,11 @@ export class NotificationGateway implements OnGatewayConnection {
     this.notification.bindGateway(this);
   }
 
-  handleConnection(client: WebSocket, request: { url?: string }) {
+  handleConnection(client: AuthedWebSocket, request: { url?: string }) {
     const token = new URL(request.url || '', 'http://localhost').searchParams.get('token');
     try {
-      this.jwt.verify(token || '');
+      const payload = this.jwt.verify<{ sub: string }>(token || '');
+      client.userId = payload.sub;
     } catch {
       client.close();
     }
@@ -24,7 +27,11 @@ export class NotificationGateway implements OnGatewayConnection {
   push(payload: NotificationPayload) {
     const data = JSON.stringify(payload);
     this.server.clients.forEach((client) => {
-      if (client.readyState === WebSocket.OPEN) client.send(data);
+      const socket = client as AuthedWebSocket;
+      if (socket.readyState !== WebSocket.OPEN) return;
+      // 指定了接收人时定向推送，否则广播
+      if (payload.userIds?.length && !payload.userIds.includes(socket.userId || '')) return;
+      socket.send(data);
     });
   }
 }

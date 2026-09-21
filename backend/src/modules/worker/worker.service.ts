@@ -30,8 +30,4 @@ export class WorkerService {
   findByUserId(userId: string) {
     return workers.find((item) => item.userId === userId);
   }
-
-  firstOnline() {
-    return workers.find((item) => item.status === WorkerStatus.ONLINE) || workers[0];
-  }
 }

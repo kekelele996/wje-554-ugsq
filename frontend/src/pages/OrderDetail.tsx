@@ -2,6 +2,7 @@ import { Box, Button, Card, CardContent, Grid, Stack, TextField, Typography } fr
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { OrderStatus, UserRole } from '../constants/enums';
+import { DispatchDialog } from '../components/common/DispatchDialog';
 import { OrderStatusFlow } from '../components/common/OrderStatusFlow';
 import { PageHeader } from '../components/common/PageHeader';
 import { RatingStars } from '../components/common/RatingStars';
@@ -10,12 +11,15 @@ import { useAuthStore } from '../stores/authStore';
 import { useOrderStore } from '../stores/orderStore';
 import { datetime, money } from '../utils/format';
 
+const dispatchableStatuses = [OrderStatus.PENDING, OrderStatus.ASSIGNED, OrderStatus.ACCEPTED];
+
 export function OrderDetail() {
   const { id = '' } = useParams();
   const role = useAuthStore((state) => state.user?.role);
   const { current, loadOrder, updateStatus, cancel, rate } = useOrderStore();
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState('服务准时，沟通顺畅。');
+  const [dispatchOpen, setDispatchOpen] = useState(false);
 
   useEffect(() => { loadOrder(id); }, [id, loadOrder]);
 
@@ -30,7 +34,6 @@ export function OrderDetail() {
       };
       return map[current.status] ? [map[current.status]!] : [];
     }
-    if (role === UserRole.ADMIN && current.status === OrderStatus.PENDING) return [['派单给默认技师', OrderStatus.ASSIGNED] as [string, OrderStatus]];
     return [];
   }, [current, role]);
 
@@ -54,6 +57,9 @@ export function OrderDetail() {
             <Box sx={{ my: 4, overflowX: 'auto' }}><OrderStatusFlow status={current.status} /></Box>
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
               {actions.map(([label, next]) => <Button key={next} variant="contained" onClick={() => updateStatus(current.id, next)}>{label}</Button>)}
+              {role === UserRole.ADMIN && dispatchableStatuses.includes(current.status) && (
+                <Button variant="contained" onClick={() => setDispatchOpen(true)}>{current.workerId ? '改派技师' : '派单'}</Button>
+              )}
               {role !== UserRole.WORKER && ![OrderStatus.CANCELLED, OrderStatus.RATED].includes(current.status) && <Button color="error" variant="outlined" onClick={() => cancel(current.id, '用户取消')}>取消订单</Button>}
             </Stack>
           </CardContent></Card>
@@ -77,6 +83,7 @@ export function OrderDetail() {
           </CardContent></Card>
         </Grid>
       </Grid>
+      <DispatchDialog order={current} open={dispatchOpen} onClose={() => setDispatchOpen(false)} />
     </>
   );
 }

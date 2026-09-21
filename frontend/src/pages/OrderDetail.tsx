@@ -6,6 +6,7 @@ import { OrderStatusFlow } from '../components/common/OrderStatusFlow';
 import { PageHeader } from '../components/common/PageHeader';
 import { RatingStars } from '../components/common/RatingStars';
 import { StatusBadge } from '../components/common/StatusBadge';
+import { DispatchDialog } from '../components/order/DispatchDialog';
 import { useAuthStore } from '../stores/authStore';
 import { useOrderStore } from '../stores/orderStore';
 import { datetime, money } from '../utils/format';
@@ -16,6 +17,7 @@ export function OrderDetail() {
   const { current, loadOrder, updateStatus, cancel, rate } = useOrderStore();
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState('服务准时，沟通顺畅。');
+  const [dispatchOpen, setDispatchOpen] = useState(false);
 
   useEffect(() => { loadOrder(id); }, [id, loadOrder]);
 
@@ -30,11 +32,12 @@ export function OrderDetail() {
       };
       return map[current.status] ? [map[current.status]!] : [];
     }
-    if (role === UserRole.ADMIN && current.status === OrderStatus.PENDING) return [['派单给默认技师', OrderStatus.ASSIGNED] as [string, OrderStatus]];
     return [];
   }, [current, role]);
 
   if (!current) return null;
+
+  const canDispatch = role === UserRole.ADMIN && [OrderStatus.PENDING, OrderStatus.ASSIGNED].includes(current.status);
 
   return (
     <>
@@ -54,6 +57,7 @@ export function OrderDetail() {
             <Box sx={{ my: 4, overflowX: 'auto' }}><OrderStatusFlow status={current.status} /></Box>
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
               {actions.map(([label, next]) => <Button key={next} variant="contained" onClick={() => updateStatus(current.id, next)}>{label}</Button>)}
+              {canDispatch && <Button variant="contained" onClick={() => setDispatchOpen(true)}>{current.workerId ? '改派' : '派单'}</Button>}
               {role !== UserRole.WORKER && ![OrderStatus.CANCELLED, OrderStatus.RATED].includes(current.status) && <Button color="error" variant="outlined" onClick={() => cancel(current.id, '用户取消')}>取消订单</Button>}
             </Stack>
           </CardContent></Card>
@@ -77,6 +81,7 @@ export function OrderDetail() {
           </CardContent></Card>
         </Grid>
       </Grid>
+      {canDispatch && <DispatchDialog order={current} open={dispatchOpen} onClose={() => setDispatchOpen(false)} />}
     </>
   );
 }

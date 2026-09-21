@@ -8,6 +8,7 @@ HomeService Hub 是一个家政与本地生活服务平台，连接客户、技�
 - Worker：查看待接订单，按状态执行接单、出发、开始服务、完工。
 - Admin：管理全部订单、技师审核、服务项目创建、上下架和定价维护。
 - 订单状态流转：`PENDING -> ASSIGNED -> ACCEPTED -> ON_THE_WAY -> IN_PROGRESS -> COMPLETED -> RATED`，支持取消。
+- 派单门禁：订单只能派给服务类目匹配且状态在线的技师；技师时段占用长度按服务时长计算，未取消、未评价订单之间时段不得重叠。Admin 派单/改派被门禁拦截（目标不合规、时段冲突）时返回 409 及冲突明细，原技师与订单状态保持不动；成功后通过 WebSocket 通知客户、原技师和新技师。候选技师列表（`GET /api/orders/:id/assignable-workers`）返回每个技师的可派状态、拦截原因和冲突订单，前端派单弹窗据此展示并支持刷新。
 - 实时通知：后端 WebSocket Gateway 推送订单状态变更、新派单和技师出发通知。
 - 审计日志：关键写操作通过 NestJS Interceptor 记录操作人、动作、目标实体和参数。
 

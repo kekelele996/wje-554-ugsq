@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@ne
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AuthGuard } from '../../common/guards/auth.guard';
 import { OrderStatus, UserRole } from '../../constants/enums';
+import { AssignOrderDto } from './dto/assign-order.dto';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { CancelOrderDto, RateOrderDto, UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { OrderService } from './order.service';
@@ -29,6 +30,16 @@ export class OrderController {
   @Patch(':id/status')
   updateStatus(@CurrentUser() user: { sub: string; role: UserRole }, @Param('id') id: string, @Body() dto: UpdateOrderStatusDto) {
     return this.order.updateStatus(user, id, dto.status, dto.workerId);
+  }
+
+  @Get(':id/assignable-workers')
+  assignableWorkers(@CurrentUser() user: { sub: string; role: UserRole }, @Param('id') id: string) {
+    return this.order.assignableWorkers(user, id);
+  }
+
+  @Post(':id/assign')
+  assign(@CurrentUser() user: { sub: string; role: UserRole }, @Param('id') id: string, @Body() dto: AssignOrderDto) {
+    return this.order.assign(user, id, dto.workerId);
   }
 
   @Post(':id/rate')

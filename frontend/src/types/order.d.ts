@@ -25,3 +25,25 @@ export interface ServiceOrder {
   customer: User;
   worker?: Worker;
 }
+
+export type AssignBlockCode = 'WORKER_NOT_ONLINE' | 'CATEGORY_MISMATCH' | 'TIME_CONFLICT';
+
+export interface AssignConflict {
+  orderId: string;
+  orderNo: string;
+  status: OrderStatus;
+  scheduledTime: string;
+  occupiedUntil: string;
+}
+
+export interface AssignBlock {
+  code: AssignBlockCode;
+  message: string;
+  conflicts?: AssignConflict[];
+}
+
+export interface AssignableWorker {
+  worker: Worker;
+  eligible: boolean;
+  blocks: AssignBlock[];
+}

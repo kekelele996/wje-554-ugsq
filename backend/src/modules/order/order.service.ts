@@ -1,8 +1,9 @@
-import { ForbiddenException, Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import { OrderStatus, UserRole } from '../../constants/enums';
+import { ForbiddenException, Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+import { OrderStatus, UserRole, WorkerStatus } from '../../constants/enums';
 import { orders, services, users, workers } from '../demo-data';
 import { NotificationService } from '../notification/notification.service';
 import { WorkerService } from '../worker/worker.service';
+import { WorkerEntity } from '../worker/entities/worker.entity';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { OrderEntity } from './entities/order.entity';
 
@@ -16,6 +17,22 @@ const transitions: Record<OrderStatus, OrderStatus[]> = {
   [OrderStatus.RATED]: [],
   [OrderStatus.CANCELLED]: []
 };
+
+export type AssignBlockCode = 'WORKER_NOT_ONLINE' | 'CATEGORY_MISMATCH' | 'TIME_CONFLICT';
+
+export interface AssignConflict {
+  orderId: string;
+  orderNo: string;
+  status: OrderStatus;
+  scheduledTime: string;
+  occupiedUntil: string;
+}
+
+export interface AssignBlock {
+  code: AssignBlockCode;
+  message: string;
+  conflicts?: AssignConflict[];
+}
 
 @Injectable()
 export class OrderService {
@@ -65,9 +82,9 @@ export class OrderService {
     const order = this.mustFind(id);
     if (!transitions[order.status].includes(status)) throw new BadRequestException(`订单不能从 ${order.status} 流转到 ${status}`);
     if (status === OrderStatus.ASSIGNED) {
-      if (user.role !== UserRole.ADMIN) throw new ForbiddenException('仅 Admin 可派单');
-      order.workerId = workerId || this.workerService.firstOnline().id;
-    } else if ([OrderStatus.ACCEPTED, OrderStatus.ON_THE_WAY, OrderStatus.IN_PROGRESS, OrderStatus.COMPLETED].includes(status)) {
+      return this.assign(user, id, workerId);
+    }
+    if ([OrderStatus.ACCEPTED, OrderStatus.ON_THE_WAY, OrderStatus.IN_PROGRESS, OrderStatus.COMPLETED].includes(status)) {
       const worker = this.workerService.findByUserId(user.sub);
       if (user.role !== UserRole.WORKER || !worker || worker.id !== order.workerId) throw new ForbiddenException('仅订单技师可更新该状态');
       if (status === OrderStatus.COMPLETED) {
@@ -78,11 +95,79 @@ export class OrderService {
     order.status = status;
     order.updatedAt = new Date().toISOString();
     this.notification.notify({
-      type: status === OrderStatus.ASSIGNED ? 'order:new_assignment' : status === OrderStatus.ON_THE_WAY ? 'order:worker_arriving' : 'order:status_changed',
+      type: status === OrderStatus.ON_THE_WAY ? 'order:worker_arriving' : 'order:status_changed',
       title: '订单状态更新',
       message: `${order.orderNo} 已更新为 ${status}`,
       orderId: order.id,
       userIds: [order.customerId, order.workerId || ''].filter(Boolean)
+    });
+    return this.hydrate(order);
+  }
+
+  /** 派单门禁：列出某订单可派给的技师及被拦截原因（Admin 派单/改派列表） */
+  assignableWorkers(user: { sub: string; role: UserRole }, id: string) {
+    if (user.role !== UserRole.ADMIN) throw new ForbiddenException('仅 Admin 可查看可派单技师');
+    const order = this.mustFind(id);
+    return workers.map((worker) => {
+      const blocks = this.assignBlocks(order, worker);
+      return { worker, eligible: blocks.length === 0, blocks };
+    });
+  }
+
+  /**
+   * 派单/改派（仅 Admin）。先完成全部门禁校验再落库：
+   * 目标不合规、时段冲突或保存失败时，原技师与订单状态保持不动。
+   */
+  assign(user: { sub: string; role: UserRole }, id: string, workerId?: string) {
+    if (user.role !== UserRole.ADMIN) throw new ForbiddenException('仅 Admin 可派单');
+    const order = this.mustFind(id);
+    if (![OrderStatus.PENDING, OrderStatus.ASSIGNED].includes(order.status)) {
+      throw new BadRequestException(`订单状态为 ${order.status}，不可派单/改派`);
+    }
+    let targetId = workerId;
+    if (!targetId) {
+      const candidate = workers.find((worker) => this.assignBlocks(order, worker).length === 0);
+      if (!candidate) throw new BadRequestException('当前没有符合派单条件的在线技师');
+      targetId = candidate.id;
+    }
+    const worker = workers.find((item) => item.id === targetId);
+    if (!worker) throw new NotFoundException('技师不存在');
+    const blocks = this.assignBlocks(order, worker);
+    if (blocks.length) {
+      throw new ConflictException({
+        message: `派单被拦截：${blocks.map((block) => block.message).join('；')}`,
+        reason: blocks[0].code,
+        blocks,
+        order: { id: order.id, orderNo: order.orderNo, status: order.status, workerId: order.workerId ?? null }
+      });
+    }
+    const previousWorker = workers.find((item) => item.id === order.workerId);
+    order.workerId = worker.id;
+    order.status = OrderStatus.ASSIGNED;
+    order.updatedAt = new Date().toISOString();
+    const isReassign = Boolean(previousWorker && previousWorker.id !== worker.id);
+    this.notification.notify({
+      type: 'order:status_changed',
+      title: isReassign ? '订单已改派' : '订单已派单',
+      message: `订单 ${order.orderNo} 已${isReassign ? '改派' : '派单'}给技师 ${worker.name}`,
+      orderId: order.id,
+      userIds: [order.customerId]
+    });
+    if (isReassign && previousWorker) {
+      this.notification.notify({
+        type: 'order:status_changed',
+        title: '订单已改派',
+        message: `订单 ${order.orderNo} 已改派给其他技师`,
+        orderId: order.id,
+        userIds: [previousWorker.userId]
+      });
+    }
+    this.notification.notify({
+      type: 'order:new_assignment',
+      title: isReassign ? '改派订单通知' : '新派单通知',
+      message: `订单 ${order.orderNo} 已分配给你，请及时接单`,
+      orderId: order.id,
+      userIds: [worker.userId]
     });
     return this.hydrate(order);
   }
@@ -108,6 +193,49 @@ export class OrderService {
     order.cancelReason = reason;
     order.updatedAt = new Date().toISOString();
     return this.hydrate(order);
+  }
+
+  /** 派单门禁校验：类目匹配 + 状态在线 + 时段不冲突，返回全部拦截原因（空数组表示可派单） */
+  private assignBlocks(order: OrderEntity, worker: WorkerEntity): AssignBlock[] {
+    const blocks: AssignBlock[] = [];
+    const service = services.find((item) => item.id === order.serviceItemId);
+    if (worker.status !== WorkerStatus.ONLINE) {
+      blocks.push({ code: 'WORKER_NOT_ONLINE', message: `技师状态为 ${worker.status}，仅在线技师可接单` });
+    }
+    if (service && !worker.specialties.includes(service.category)) {
+      blocks.push({ code: 'CATEGORY_MISMATCH', message: `技师擅长类目不含 ${service.category}` });
+    }
+    const window = this.occupiedWindow(order);
+    const conflicts = orders
+      .filter((item) => item.id !== order.id && item.workerId === worker.id && this.occupiesWorker(item))
+      .filter((item) => {
+        const other = this.occupiedWindow(item);
+        return window.start < other.end && other.start < window.end;
+      })
+      .map((item) => ({
+        orderId: item.id,
+        orderNo: item.orderNo,
+        status: item.status,
+        scheduledTime: item.scheduledTime,
+        occupiedUntil: new Date(this.occupiedWindow(item).end).toISOString()
+      }));
+    if (conflicts.length) {
+      blocks.push({ code: 'TIME_CONFLICT', message: `与 ${conflicts.length} 个未取消、未评价订单时段冲突`, conflicts });
+    }
+    return blocks;
+  }
+
+  /** 未取消、未评价的订单会占用技师时段 */
+  private occupiesWorker(order: OrderEntity) {
+    return order.status !== OrderStatus.CANCELLED && order.status !== OrderStatus.RATED;
+  }
+
+  /** 订单占用技师时段：[预约时间, 预约时间 + 服务时长] */
+  private occupiedWindow(order: OrderEntity) {
+    const service = services.find((item) => item.id === order.serviceItemId);
+    const start = new Date(order.scheduledTime).getTime();
+    const durationMinutes = service?.duration ?? 0;
+    return { start, end: start + durationMinutes * 60_000 };
   }
 
   private mustFind(id: string) {
